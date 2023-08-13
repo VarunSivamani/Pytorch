@@ -1,5 +1,5 @@
 from dataset.dataset import *
-from models.YoloV3Lightning import *
+from models.yolov3 import *
 from utils.utils import *
 
 def main(model, train_loader, val_loader, train_flag=True):

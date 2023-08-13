@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 
-from loss import YoloLoss
+from utils.loss import YoloLoss
 import config as cfg
 
 """ 
@@ -100,7 +100,7 @@ class ScalePrediction(nn.Module):
         )
 
 
-class YOLOv3LightningModel(pl.LightningModule):
+class YoloV3(pl.LightningModule):
     def __init__(self, in_channels=3, num_classes=20):
         super().__init__()
         self.num_classes = num_classes
@@ -108,19 +108,15 @@ class YOLOv3LightningModel(pl.LightningModule):
         self.layers = self._create_conv_layers()
         self.criterion = YoloLoss()
 
-        self.metric = dict(
-            total_train_steps=0,
-            epoch_train_loss=[],
-            epoch_train_acc=[],
-            epoch_train_steps=0,
-            total_val_steps=0,
-            epoch_val_loss=[],
-            epoch_val_acc=[],
-            epoch_val_steps=0,
-            train_loss=[],
-            val_loss=[],
-            train_acc=[],
-            val_acc=[]
+        self.metrics = dict(
+            train_step = 0,
+            val_step = 0,
+            train_loss = list(),
+            train_acc = list(),
+            val_loss = list(),
+            val_acc = list(),
+            epoch_train_step = 0,
+            epoch_val_step = 0,
         )
 
     def forward(self, x):
@@ -180,9 +176,9 @@ class YOLOv3LightningModel(pl.LightningModule):
         return layers
 
 
-    def get_layer(self, idx):
-        if idx < len(self.layers) and idx >= 0:
-            return self.layers[idx]
+    def get_layer(self, index):
+        if index < len(self.layers) and index >= 0:
+            return self.layers[index]
 
 
     def training_step(self, train_batch, batch_idx):
@@ -191,12 +187,12 @@ class YOLOv3LightningModel(pl.LightningModule):
         loss = self.criterion(output, target, return_dict=True)
         acc = self.criterion.check_class_accuracy(output, target, cfg.CONF_THRESHOLD)
 
-        self.metric['total_train_steps'] += 1
-        self.metric['epoch_train_steps'] += 1
-        self.metric['epoch_train_loss'].append(loss)
-        self.metric['epoch_train_acc'].append(acc)
+        self.metrics['train_loss'].append(loss)
+        self.metrics['train_acc'].append(acc)
+        self.metrics['train_step'] += 1
+        self.metrics['epoch_train_step'] += 1
 
-        self.log_dict({'train_loss': loss['total_loss']})
+        self.log_dict({'training_loss': loss['total_loss']})
 
         return loss['total_loss']
 
@@ -207,79 +203,78 @@ class YOLOv3LightningModel(pl.LightningModule):
         loss = self.criterion(output, target, return_dict=True)
         acc = self.criterion.check_class_accuracy(output, target, cfg.CONF_THRESHOLD)
 
-        self.metric['total_val_steps'] += 1
-        self.metric['epoch_val_steps'] += 1
-        self.metric['epoch_val_loss'].append(loss)
-        self.metric['epoch_val_acc'].append(acc)
+        self.metrics['val_loss'].append(loss)
+        self.metrics['val_acc'].append(acc)
+        self.metrics['val_step'] += 1
+        self.metrics['epoch_val_step'] += 1
 
-        self.log_dict({'val_loss': loss['total_loss']})
+        self.log_dict({'validation_loss': loss['total_loss']})
 
 
     def on_validation_epoch_end(self):
-        if self.metric["total_train_steps"]:
+        if self.metrics["train_step"]:
             print("Epoch ", self.current_epoch)
-            epoch_loss = 0
-            epoch_acc = dict(
-                correct_class=0,
-                correct_noobj=0,
-                correct_obj=0,
-                total_class_preds=0,
-                total_noobj=0,
-                total_obj=0,
+            curr_loss = 0
+            curr_acc = dict(
+                correct_class = 0,
+                correct_noobj = 0,
+                correct_obj = 0,
+                total_class_preds = 0,
+                total_noobj = 0,
+                total_obj = 0,
             )
 
-            for i in range(self.metric["epoch_train_steps"]):
-                lo = self.metric["epoch_train_loss"][i]
-                epoch_loss += lo["total_loss"]
-                acc = self.metric["epoch_train_acc"][i]
-                epoch_acc["correct_class"] += acc["correct_class"]
-                epoch_acc["correct_noobj"] += acc["correct_noobj"]
-                epoch_acc["correct_obj"] += acc["correct_obj"]
-                epoch_acc["total_class_preds"] += acc["total_class_preds"]
-                epoch_acc["total_noobj"] += acc["total_noobj"]
-                epoch_acc["total_obj"] += acc["total_obj"]
+            for i in range(self.metrics["epoch_train_step"]):
+                loss_ = self.metrics["train_loss"][i]
+                curr_loss += loss_["total_loss"]
+                acc = self.metrics["train_acc"][i]
+                curr_acc["correct_class"] += acc["correct_class"]
+                curr_acc["correct_noobj"] += acc["correct_noobj"]
+                curr_acc["correct_obj"] += acc["correct_obj"]
+                curr_acc["total_class_preds"] += acc["total_class_preds"]
+                curr_acc["total_noobj"] += acc["total_noobj"]
+                curr_acc["total_obj"] += acc["total_obj"]
 
             print("Results of Training :")
-            print(f"Class accuracy  : {(epoch_acc['correct_class']/(epoch_acc['total_class_preds']+1e-16))*100:2f}%")
-            print(f"No obj accuracy : {(epoch_acc['correct_noobj']/(epoch_acc['total_noobj']+1e-16))*100:2f}%")
-            print(f"Obj accuracy    : {(epoch_acc['correct_obj']/(epoch_acc['total_obj']+1e-16))*100:2f}%")
-            print(f"Total loss: {(epoch_loss/(len(self.metric['epoch_train_loss'])+1e-16)):2f}")
+            print(f"Class accuracy  : {(curr_acc['correct_class']/(curr_acc['total_class_preds']+1e-16))*100:2f}%")
+            print(f"No obj accuracy : {(curr_acc['correct_noobj']/(curr_acc['total_noobj']+1e-16))*100:2f}%")
+            print(f"Obj accuracy    : {(curr_acc['correct_obj']/(curr_acc['total_obj']+1e-16))*100:2f}%")
+            print(f"Total loss: {(curr_loss/(len(self.metrics['train_loss'])+1e-16)):2f}")
 
-            self.metric["epoch_train_loss"] = []
-            self.metric["epoch_train_acc"] = []
-            self.metric["epoch_train_steps"] = 0
+            self.metrics["train_loss"] = []
+            self.metrics["train_acc"] = []
+            self.metrics["epoch_train_step"] = 0
 
-            # ---
-            epoch_loss = 0
-            epoch_acc = dict(
-                correct_class=0,
-                correct_noobj=0,
-                correct_obj=0,
-                total_class_preds=0,
-                total_noobj=0,
-                total_obj=0,
+            curr_loss = 0
+            curr_acc = dict(
+                correct_class = 0,
+                correct_noobj = 0,
+                correct_obj = 0,
+                total_class_preds = 0,
+                total_noobj = 0,
+                total_obj = 0,
             )
 
-            for i in range(self.metric["epoch_val_steps"]):
-                lo = self.metric["epoch_val_loss"][i]
-                epoch_loss += lo["total_loss"]
-                acc = self.metric["epoch_val_acc"][i]
-                epoch_acc["correct_class"] += acc["correct_class"]
-                epoch_acc["correct_noobj"] += acc["correct_noobj"]
-                epoch_acc["correct_obj"] += acc["correct_obj"]
-                epoch_acc["total_class_preds"] += acc["total_class_preds"]
-                epoch_acc["total_noobj"] += acc["total_noobj"]
-                epoch_acc["total_obj"] += acc["total_obj"]
+            for i in range(self.metrics["epoch_val_step"]):
+                loss_ = self.metrics["val_loss"][i]
+                curr_loss += loss_["total_loss"]
+                acc = self.metrics["val_acc"][i]
+                curr_acc["correct_class"] += acc["correct_class"]
+                curr_acc["correct_noobj"] += acc["correct_noobj"]
+                curr_acc["correct_obj"] += acc["correct_obj"]
+                curr_acc["total_class_preds"] += acc["total_class_preds"]
+                curr_acc["total_noobj"] += acc["total_noobj"]
+                curr_acc["total_obj"] += acc["total_obj"]
 
             print("Results on Validation :")
-            print(f"Class accuracy  : {(epoch_acc['correct_class']/(epoch_acc['total_class_preds']+1e-16))*100:2f}%")
-            print(f"No obj accuracy : {(epoch_acc['correct_noobj']/(epoch_acc['total_noobj']+1e-16))*100:2f}%")
-            print(f"Obj accuracy    : {(epoch_acc['correct_obj']/(epoch_acc['total_obj']+1e-16))*100:2f}%")
-            print(f"Total loss: {(epoch_loss/(len(self.metric['epoch_val_loss'])+1e-16)):2f}")
+            print(f"Class accuracy  : {(curr_acc['correct_class']/(curr_acc['total_class_preds']+1e-16))*100:2f}%")
+            print(f"No obj accuracy : {(curr_acc['correct_noobj']/(curr_acc['total_noobj']+1e-16))*100:2f}%")
+            print(f"Obj accuracy    : {(curr_acc['correct_obj']/(curr_acc['total_obj']+1e-16))*100:2f}%")
+            print(f"Total loss: {(curr_loss/(len(self.metrics['val_loss'])+1e-16)):2f}")
 
-            self.metric["epoch_val_loss"] = []
-            self.metric["epoch_val_acc"] = []
-            self.metric["epoch_val_steps"] = 0
+            self.metrics["val_loss"] = []
+            self.metrics["val_acc"] = []
+            self.metrics["epoch_val_step"] = 0
 
             print("Saving and Creating checkpoint...")
             print("\n")
@@ -313,13 +308,13 @@ class YOLOv3LightningModel(pl.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                'interval': 'step', # or 'epoch'
+                'interval': 'step',
                 'frequency': 1
             },
         }
 
 
-def sanity_check(model):
+def check(model):
     x = torch.randn((2, 3, cfg.IMAGE_SIZE, cfg.IMAGE_SIZE))
     out = model(x)
     assert model(x)[0].shape == (2, 3, cfg.IMAGE_SIZE // 32, cfg.IMAGE_SIZE // 32, cfg.NUM_CLASSES + 5)
