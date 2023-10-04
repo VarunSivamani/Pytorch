@@ -1,0 +1,8 @@
+numpy 
+pandas 
+matplotlib 
+albumentations 
+torch 
+timm 
+pytorch_lightning 
+transformers
